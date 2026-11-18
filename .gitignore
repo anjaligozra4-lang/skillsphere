@@ -12,3 +12,58 @@ coverage/
 backend/uploads/*
 !backend/uploads/.gitkeep
 
+
+# Additional Python virtual environments
+.venv*/
+**/.venv*/
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Backup files
+*.backup*
+*.bak
+*.before*
+*.otp-backup
+**/*-backup/
+**/*_backup*/
+**/public_backup/
+
+# Private uploads and recordings
+/uploads/
+**/recordings_staging/
+
+# Database backups
+backend/skillsphere_backup*.sql
+
+# Temporary patch scripts
+frontend/patch_*.py
+
+# Temporary files
+frontend/src/*temp*
+frontend/stats-snippet.txt
+frontend/url=*
+.venv*/
+**/.venv*/
+*.log
+*.tmp
+*.backup*
+*.bak
+*.before*
+*.otp-backup
+**/*-backup/
+**/*_backup*/
+**/public_backup/
+uploads/
+**/recordings_staging/
+backend/skillsphere_backup*.sql
+frontend/patch_*.py
+frontend/src/*temp*
+frontend/stats-snippet.txt
+frontend/url=*
+
+# Ignore all backup files
+*backup*
+*before*
+*.bak

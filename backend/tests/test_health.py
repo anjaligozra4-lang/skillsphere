@@ -1,74 +1,36 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-import pytest
 import fitz
 import pytesseract
 from fastapi.testclient import TestClient
 from jose import jwt
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
+from sqlalchemy.dialects import mysql
 
 from app.core.config import get_settings
 from app.core.security import hash_password
-from app.database import Base, get_db
-from app.main import app
 from app.models import Company, Job, Resume, User
-
-
-@pytest.fixture
-def database(tmp_path):
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'test.db'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    test_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    yield test_session
-    engine.dispose()
-
-
-@pytest.fixture
-def client(database):
-    def override_get_db():
-        db = database()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-
-
-def register_and_login(client: TestClient, email: str, role: str) -> str:
-    registration = client.post("/api/auth/register", json={
-        "full_name": f"Test {role.title()}",
-        "email": email,
-        "password": "StrongPass123",
-        "role": role,
-    })
-    assert registration.status_code == 201
-
-    login = client.post("/api/auth/login", json={
-        "email": email,
-        "password": "StrongPass123",
-    })
-    assert login.status_code == 200
-    return login.json()["access_token"]
+from app.routers import _job_sort_order
+from tests.conftest import login_with_otp, register_and_login
 
 
 def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
-
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "service": "SkillSphere"}
 
 
-def test_candidate_registration_and_login(client: TestClient) -> None:
-    token = register_and_login(client, "candidate@example.com", "candidate")
+def test_salary_sort_order_is_valid_mysql_sql() -> None:
+    for sort_by in ("salary_asc", "salary_desc"):
+        statement = select(Job).order_by(*_job_sort_order(sort_by))
+        sql = str(statement.compile(dialect=mysql.dialect()))
+        assert "CASE WHEN" in sql
+        assert "NULLS LAST" not in sql
+
+
+def test_candidate_registration_and_login(client: TestClient, smtp_outbox) -> None:
+    token = register_and_login(client, "candidate@example.com", "candidate", smtp_outbox)
 
     assert token
     headers = {"Authorization": f"Bearer {token}"}
@@ -87,7 +49,7 @@ def test_candidate_registration_and_login(client: TestClient) -> None:
     assert client.get("/api/admin/analytics", headers=headers).status_code == 403
 
 
-def test_admin_authentication_and_public_signup_restrictions(client: TestClient, database) -> None:
+def test_admin_authentication_and_public_signup_restrictions(client: TestClient, database, smtp_outbox) -> None:
     forbidden_signup = client.post("/api/auth/register", json={
         "full_name": "Public Admin",
         "email": "public-admin@example.com",
@@ -113,12 +75,8 @@ def test_admin_authentication_and_public_signup_restrictions(client: TestClient,
         ))
         db.commit()
 
-    admin_login = client.post("/api/auth/login", json={
-        "email": "Admin@Example.com",
-        "password": "StrongPass123",
-    })
-    assert admin_login.status_code == 200
-    admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+    admin_session = login_with_otp(client, smtp_outbox, "Admin@Example.com", "StrongPass123")
+    admin_headers = {"Authorization": f"Bearer {admin_session['access_token']}"}
     identity = client.get("/api/auth/me", headers=admin_headers)
     assert identity.status_code == 200
     assert identity.json()["role"] == "admin"
@@ -131,7 +89,7 @@ def test_admin_authentication_and_public_signup_restrictions(client: TestClient,
     }).status_code == 401
 
 
-def test_admin_dashboard_counts_and_user_management(client: TestClient, database) -> None:
+def test_admin_dashboard_counts_and_user_management(client: TestClient, database, smtp_outbox) -> None:
     candidate_registration = client.post("/api/auth/register", json={
         "full_name": "Dashboard Candidate",
         "email": "dashboard-candidate@example.com",
@@ -155,11 +113,8 @@ def test_admin_dashboard_counts_and_user_management(client: TestClient, database
         ))
         db.commit()
 
-    login = client.post("/api/auth/login", json={
-        "email": "dashboard-admin@example.com",
-        "password": "StrongPass123",
-    })
-    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    login = login_with_otp(client, smtp_outbox, "dashboard-admin@example.com", "StrongPass123")
+    headers = {"Authorization": f"Bearer {login['access_token']}"}
 
     stats = client.get("/api/admin/stats", headers=headers)
     assert stats.status_code == 200
@@ -207,10 +162,7 @@ def test_admin_dashboard_counts_and_user_management(client: TestClient, database
     )
     assert enabled.status_code == 200
     assert enabled.json()["is_active"] is True
-    assert client.post("/api/auth/login", json={
-        "email": "dashboard-candidate@example.com",
-        "password": "StrongPass123",
-    }).status_code == 200
+    assert login_with_otp(client, smtp_outbox, "dashboard-candidate@example.com", "StrongPass123")["access_token"]
 
     admin_id = next(
         item["id"] for item in users.json()
@@ -224,9 +176,9 @@ def test_admin_dashboard_counts_and_user_management(client: TestClient, database
     assert self_disable.status_code == 400
 
 
-def test_job_filters_and_withdrawal(client: TestClient, database) -> None:
-    candidate_token = register_and_login(client, "candidate@example.com", "candidate")
-    recruiter_token = register_and_login(client, "recruiter@example.com", "recruiter")
+def test_job_filters_and_withdrawal(client: TestClient, database, smtp_outbox) -> None:
+    candidate_token = register_and_login(client, "candidate@example.com", "candidate", smtp_outbox)
+    recruiter_token = register_and_login(client, "recruiter@example.com", "recruiter", smtp_outbox)
     candidate_headers = {"Authorization": f"Bearer {candidate_token}"}
     recruiter_headers = {"Authorization": f"Bearer {recruiter_token}"}
     profile = client.put("/api/candidates/me", json={
@@ -379,7 +331,7 @@ def test_job_filters_and_withdrawal(client: TestClient, database) -> None:
     recruiter_applicants = client.get("/api/recruiter/applicants", headers=recruiter_headers)
     assert recruiter_applicants.status_code == 200
     assert recruiter_applicants.json()[0]["job_id"] == job.json()["id"]
-    competing_recruiter = register_and_login(client, "other-recruiter@example.com", "recruiter")
+    competing_recruiter = register_and_login(client, "other-recruiter@example.com", "recruiter", smtp_outbox)
     competing_headers = {"Authorization": f"Bearer {competing_recruiter}"}
     assert client.get(
         f"/api/recruiters/jobs/{job.json()['id']}/applicants",
@@ -463,9 +415,9 @@ def test_job_filters_and_withdrawal(client: TestClient, database) -> None:
     ] == 0
 
 
-def test_resume_upload_extracts_and_reviews_page_data(client: TestClient, tmp_path, monkeypatch) -> None:
+def test_resume_upload_extracts_and_reviews_page_data(client: TestClient, tmp_path, monkeypatch, smtp_outbox) -> None:
     monkeypatch.setattr("app.routers.UPLOAD_DIR", tmp_path)
-    token = register_and_login(client, "resume-candidate@example.com", "candidate")
+    token = register_and_login(client, "resume-candidate@example.com", "candidate", smtp_outbox)
     headers = {"Authorization": f"Bearer {token}"}
     document = fitz.open()
     first_page = document.new_page()
@@ -515,9 +467,9 @@ def test_resume_upload_extracts_and_reviews_page_data(client: TestClient, tmp_pa
     assert profile.json()["skills"] == ["Python", "React"]
 
 
-def test_resume_upload_reports_invalid_and_unreadable_files(client: TestClient, tmp_path, monkeypatch) -> None:
+def test_resume_upload_reports_invalid_and_unreadable_files(client: TestClient, tmp_path, monkeypatch, smtp_outbox) -> None:
     monkeypatch.setattr("app.routers.UPLOAD_DIR", tmp_path)
-    token = register_and_login(client, "invalid-candidate@example.com", "candidate")
+    token = register_and_login(client, "invalid-candidate@example.com", "candidate", smtp_outbox)
     headers = {"Authorization": f"Bearer {token}"}
 
     wrong_signature = client.post(
@@ -556,10 +508,10 @@ def test_resume_upload_reports_invalid_and_unreadable_files(client: TestClient, 
     assert oversized.status_code == 413
 
 
-def test_candidate_cannot_access_another_candidates_resume(client: TestClient, tmp_path, monkeypatch) -> None:
+def test_candidate_cannot_access_another_candidates_resume(client: TestClient, tmp_path, monkeypatch, smtp_outbox) -> None:
     monkeypatch.setattr("app.routers.UPLOAD_DIR", tmp_path)
-    owner_token = register_and_login(client, "owner@example.com", "candidate")
-    other_token = register_and_login(client, "other@example.com", "candidate")
+    owner_token = register_and_login(client, "owner@example.com", "candidate", smtp_outbox)
+    other_token = register_and_login(client, "other@example.com", "candidate", smtp_outbox)
     document = fitz.open()
     page = document.new_page()
     page.insert_text((72, 72), "Sam Owner\nsam@example.com\nPython")
@@ -609,8 +561,8 @@ def test_authentication_rejects_invalid_and_expired_tokens(client: TestClient) -
     ).status_code == 401
 
 
-def test_invalid_form_data_is_rejected(client: TestClient) -> None:
-    token = register_and_login(client, "validation-candidate@example.com", "candidate")
+def test_invalid_form_data_is_rejected(client: TestClient, smtp_outbox) -> None:
+    token = register_and_login(client, "validation-candidate@example.com", "candidate", smtp_outbox)
     response = client.put(
         "/api/candidates/me",
         json={"contact_email": "not-an-email"},
@@ -621,10 +573,10 @@ def test_invalid_form_data_is_rejected(client: TestClient) -> None:
 
 
 def test_resume_upload_handles_empty_corrupt_and_unavailable_ocr(
-    client: TestClient, tmp_path, monkeypatch
+    client: TestClient, tmp_path, monkeypatch, smtp_outbox
 ) -> None:
     monkeypatch.setattr("app.routers.UPLOAD_DIR", tmp_path)
-    token = register_and_login(client, "failure-candidate@example.com", "candidate")
+    token = register_and_login(client, "failure-candidate@example.com", "candidate", smtp_outbox)
     headers = {"Authorization": f"Bearer {token}"}
 
     empty_upload = client.post(

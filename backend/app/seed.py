@@ -1,4 +1,5 @@
-﻿from sqlalchemy import select
+﻿
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -68,20 +69,32 @@ DEMO_COMPANIES = [
 
 def ensure_admin(db: Session) -> None:
     settings = get_settings()
+
     if not settings.admin_password:
         return
 
     email = settings.admin_email.strip().lower()
-    if not email or db.scalar(select(User).where(User.email == email)):
+
+    if not email:
         return
 
-    db.add(User(
-        email=email,
-        password_hash=hash_password(settings.admin_password),
-        full_name=settings.admin_full_name.strip() or "SkillSphere Administrator",
-        role="admin",
-        is_active=True,
-    ))
+    user = db.scalar(select(User).where(User.email == email))
+
+    if user is None:
+        user = User(
+            email=email,
+            password_hash=hash_password(settings.admin_password),
+            full_name=settings.admin_full_name.strip() or "SkillSphere Administrator",
+            role="admin",
+            is_active=True,
+        )
+        db.add(user)
+    else:
+        user.password_hash = hash_password(settings.admin_password)
+        user.full_name = settings.admin_full_name.strip() or "SkillSphere Administrator"
+        user.role = "admin"
+        user.is_active = True
+
     db.commit()
 
 
@@ -124,20 +137,30 @@ def seed_demo_companies(db: Session) -> None:
                 )
                 db.add(user)
                 db.flush()
-                recruiter = Recruiter(user_id=user.id, company_id=company.id)
+
+                recruiter = Recruiter(
+                    user_id=user.id,
+                    company_id=company.id
+                )
                 db.add(recruiter)
+
             elif user.role == "recruiter":
                 recruiter = db.scalar(
                     select(Recruiter).where(Recruiter.user_id == user.id)
                 )
+
                 if recruiter is None:
-                    db.add(Recruiter(user_id=user.id, company_id=company.id))
+                    db.add(
+                        Recruiter(
+                            user_id=user.id,
+                            company_id=company.id
+                        )
+                    )
                 elif recruiter.company_id is None:
                     recruiter.company_id = company.id
 
         db.commit()
+
     except Exception:
         db.rollback()
         raise
-
-

@@ -33,7 +33,11 @@ copy .env.example .env
 npm.cmd run dev
 ```
 
-Frontend: `http://localhost:5173`
+Frontend: `http://localhost:5174`
+
+## LiveKit interviews and recording
+
+LiveKit interviews require a running LiveKit server and matching `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` values in `backend/.env`. `LIVEKIT_URL` must be reachable by the candidate/recruiter browser as well as the backend. Egress recording also needs the output path configured as a shared path that the Egress service can write. If these services are unavailable, SkillSphere reports recording as unavailable; it does not generate a placeholder recording.
 
 ## Tesseract
 
