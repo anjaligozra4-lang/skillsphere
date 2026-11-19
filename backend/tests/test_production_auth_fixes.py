@@ -75,47 +75,108 @@ def test_admin_seeding_with_configured_password_creates_admin():
         settings.admin_full_name = original_name
 
 
-def test_admin_seeding_does_not_overwrite_existing_passwords():
+def test_admin_seeding_synchronizes_password_for_existing_admin():
     """
-    If a user already exists in the database, ensure_admin must NOT overwrite
-    their existing password hash.
+    When ADMIN_EMAIL matches an existing Admin account, the password hash
+    must be updated using ADMIN_PASSWORD if the passwords do not match.
     """
     settings = get_settings()
     original_email = settings.admin_email
     original_pass = settings.admin_password
 
-    existing_email = f"existing_user_{secrets.token_hex(4)}@example.com"
-    existing_initial_pass = f"InitialSecret_{secrets.token_hex(4)}!1"
-    new_admin_pass = f"NewAttemptedSecret_{secrets.token_hex(4)}!2"
+    admin_email = f"existing_admin_{secrets.token_hex(4)}@example.com"
+    old_admin_pass = f"OldAdminSecret_{secrets.token_hex(4)}!1"
+    new_admin_pass = f"NewAdminSecret_{secrets.token_hex(4)}!2"
 
     with SessionLocal() as db:
         user = User(
-            email=existing_email,
-            password_hash=hash_password(existing_initial_pass),
-            full_name="Existing User",
-            role="recruiter",
-            is_active=True,
+            email=admin_email,
+            password_hash=hash_password(old_admin_pass),
+            full_name="Existing Admin",
+            role="admin",
+            is_active=False,  # Intentionally inactive to verify activation
         )
         db.add(user)
         db.commit()
 
-    settings.admin_email = existing_email
+    settings.admin_email = admin_email
     settings.admin_password = new_admin_pass
 
     try:
         with SessionLocal() as db:
             ensure_admin(db)
-            user_after = db.scalar(select(User).where(func.lower(User.email) == existing_email))
+            user_after = db.scalar(select(User).where(func.lower(User.email) == admin_email))
 
             assert user_after is not None
             assert user_after.role == "admin"
-            # Crucial assertion: original password must still verify, new password must NOT
-            assert verify_password(existing_initial_pass, user_after.password_hash), (
-                "Existing user's original password must NOT be overwritten by seeding!"
+            assert user_after.is_active is True
+            # New password MUST verify
+            assert verify_password(new_admin_pass, user_after.password_hash), (
+                "Admin password hash should be synchronized with ADMIN_PASSWORD"
             )
-            assert not verify_password(new_admin_pass, user_after.password_hash), (
-                "New password must not have replaced the existing password hash"
+            # Old password must no longer verify
+            assert not verify_password(old_admin_pass, user_after.password_hash)
+    finally:
+        settings.admin_email = original_email
+        settings.admin_password = original_pass
+
+
+def test_admin_seeding_preserves_candidate_and_recruiter_passwords():
+    """
+    Never change candidate or recruiter passwords, even if an account with role
+    candidate/recruiter exists under ADMIN_EMAIL. Only admin accounts have passwords synced.
+    """
+    settings = get_settings()
+    original_email = settings.admin_email
+    original_pass = settings.admin_password
+
+    recruiter_email = f"recruiter_user_{secrets.token_hex(4)}@example.com"
+    initial_recruiter_pass = f"RecruiterPass_{secrets.token_hex(4)}!1"
+    attempted_admin_pass = f"AttemptedAdmin_{secrets.token_hex(4)}!2"
+
+    # Also create an independent candidate account to verify general isolation
+    cand_email = f"independent_cand_{secrets.token_hex(4)}@example.com"
+    cand_pass = f"CandPass_{secrets.token_hex(4)}!1"
+
+    with SessionLocal() as db:
+        db.add(User(
+            email=recruiter_email,
+            password_hash=hash_password(initial_recruiter_pass),
+            full_name="Recruiter User",
+            role="recruiter",
+            is_active=True,
+        ))
+        db.add(User(
+            email=cand_email,
+            password_hash=hash_password(cand_pass),
+            full_name="Independent Candidate",
+            role="candidate",
+            is_active=True,
+        ))
+        db.commit()
+
+    settings.admin_email = recruiter_email
+    settings.admin_password = attempted_admin_pass
+
+    try:
+        with SessionLocal() as db:
+            ensure_admin(db)
+            recruiter_after = db.scalar(select(User).where(func.lower(User.email) == recruiter_email))
+            cand_after = db.scalar(select(User).where(func.lower(User.email) == cand_email))
+
+            # Role ensured as admin
+            assert recruiter_after is not None
+            assert recruiter_after.role == "admin"
+            # Crucial: recruiter's password was NOT overwritten!
+            assert verify_password(initial_recruiter_pass, recruiter_after.password_hash), (
+                "Non-admin accounts must preserve their existing passwords!"
             )
+            assert not verify_password(attempted_admin_pass, recruiter_after.password_hash)
+
+            # Independent candidate was untouched
+            assert cand_after is not None
+            assert cand_after.role == "candidate"
+            assert verify_password(cand_pass, cand_after.password_hash)
     finally:
         settings.admin_email = original_email
         settings.admin_password = original_pass

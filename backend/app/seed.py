@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.security import hash_password
+from app.core.security import hash_password, verify_password
 from app.models import Company, Recruiter, User
 
 logger = logging.getLogger("skillsphere.seed")
@@ -102,19 +102,29 @@ def ensure_admin(db: Session) -> None:
         db.commit()
         logger.info("Created administrator account for %s", admin_email)
     else:
-        # Crucial: NEVER overwrite existing user passwords
         updated = False
         if not user.is_active:
             user.is_active = True
             updated = True
-        if user.role != "admin":
+
+        # Only synchronize password if this is an existing admin account
+        # Never change candidate or recruiter passwords
+        if user.role == "admin":
+            if not verify_password(admin_password, user.password_hash):
+                user.password_hash = hash_password(admin_password)
+                updated = True
+                logger.info("Synchronized administrator password for %s from ADMIN_PASSWORD", admin_email)
+            else:
+                logger.info("Administrator account %s password is already synchronized", admin_email)
+        else:
+            # If account matching ADMIN_EMAIL was not admin, ensure active admin role
+            # but preserve existing candidate/recruiter password
             user.role = "admin"
             updated = True
+            logger.info("Ensured administrator role for %s (preserved existing user password)", admin_email)
+
         if updated:
             db.commit()
-            logger.info("Ensured active admin role for existing user %s without changing password", admin_email)
-        else:
-            logger.info("Administrator account already exists for %s; preserving existing credentials", admin_email)
 
 
 def seed_demo_companies(db: Session) -> None:
