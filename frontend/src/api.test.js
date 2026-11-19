@@ -23,10 +23,38 @@ describe("API base URL configuration", () => {
     expect(api.defaults.baseURL).toBe("http://127.0.0.1:8001");
   });
 
-  it("preserves an explicitly configured API URL", async () => {
-    vi.stubEnv("VITE_API_URL", "https://api.example.test");
+  it("preserves an explicitly configured API URL and trims trailing slashes", async () => {
+    vi.stubEnv("VITE_API_URL", "https://api.example.test/");
     const { default: api } = await import("./api");
 
     expect(api.defaults.baseURL).toBe("https://api.example.test");
+  });
+
+  it("defaults to the production backend on deployed hosts when VITE_API_URL is empty", async () => {
+    vi.stubEnv("VITE_API_URL", "");
+    const originalLocation = window.location;
+    delete window.location;
+    window.location = new URL("https://skillsphere-xi-mocha.vercel.app");
+
+    try {
+      const { default: api } = await import("./api");
+      expect(api.defaults.baseURL).toBe("https://skillsphere-3beg.onrender.com");
+    } finally {
+      window.location = originalLocation;
+    }
+  });
+
+  it("overrides a localhost VITE_API_URL when running on a deployed host like Vercel", async () => {
+    vi.stubEnv("VITE_API_URL", "http://127.0.0.1:8001");
+    const originalLocation = window.location;
+    delete window.location;
+    window.location = new URL("https://skillsphere-xi-mocha.vercel.app");
+
+    try {
+      const { default: api } = await import("./api");
+      expect(api.defaults.baseURL).toBe("https://skillsphere-3beg.onrender.com");
+    } finally {
+      window.location = originalLocation;
+    }
   });
 });

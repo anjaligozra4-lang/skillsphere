@@ -128,7 +128,12 @@ export function getStatusBadgeClass(status) {
 
 export async function parseApiError(requestError, fallback = "An unexpected error occurred.") {
   const data = requestError?.response?.data;
-  if (!data) return requestError?.message || fallback;
+  if (!data) {
+    if (requestError?.message === "Network Error") {
+      return "Unable to connect to the server. Please check your network connection or verify that the API service is online.";
+    }
+    return requestError?.message || fallback;
+  }
   if (typeof data === "string") return data;
   if (data instanceof Blob) {
     try {

@@ -71,20 +71,21 @@ app = FastAPI(
 )
 
 cors_origins_list = settings.allowed_origins
-if "*" in cors_origins_list or settings.cors_origins.strip() == "*":
+if "*" in cors_origins_list:
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"^https?://.*",
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 else:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins_list,
+        allow_origin_regex=r"^https://skillsphere(-[a-zA-Z0-9_-]+)?\.vercel\.app$|^https://skillsphere-[a-zA-Z0-9_-]+-anjaligozra4-langs-projects\.vercel\.app$",
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 

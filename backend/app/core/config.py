@@ -12,6 +12,14 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 BACKEND_ENV_FILE = BACKEND_DIR / ".env"
 
 
+DEFAULT_ALLOWED_ORIGINS = (
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "https://skillsphere-xi-mocha.vercel.app",
+    "https://skillsphere-i9pr5t3gw-anjaligozra4-langs-projects.vercel.app",
+)
+
+
 class Settings(BaseSettings):
     app_name: str = "SkillSphere"
     app_env: str = "development"
@@ -22,7 +30,12 @@ class Settings(BaseSettings):
     mysql_password: str = ""
     mysql_database: str = "skillsphere_db"
 
-    cors_origins: str = "http://localhost:5174,http://127.0.0.1:5174"
+    cors_origins: str = (
+        "http://localhost:5174,"
+        "http://127.0.0.1:5174,"
+        "https://skillsphere-xi-mocha.vercel.app,"
+        "https://skillsphere-i9pr5t3gw-anjaligozra4-langs-projects.vercel.app"
+    )
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
@@ -124,11 +137,11 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins(self) -> list[str]:
-        origins = {
-            origin.strip().rstrip("/")
-            for origin in self.cors_origins.split(",")
-            if origin.strip()
-        }
+        origins = {origin.rstrip("/") for origin in DEFAULT_ALLOWED_ORIGINS}
+        for origin in self.cors_origins.split(","):
+            cleaned = origin.strip().rstrip("/")
+            if cleaned:
+                origins.add(cleaned)
         if self.frontend_base_url and self.frontend_base_url.strip():
             origins.add(self.frontend_base_url.strip().rstrip("/"))
         return sorted(list(origins))
