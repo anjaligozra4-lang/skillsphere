@@ -344,7 +344,7 @@ def _issue_session_tokens(db: Session, user: User) -> dict:
 @auth_router.post("/register", status_code=201)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     email = str(payload.email).strip().lower()
-    if db.scalar(select(User).where(User.email == email)):
+    if db.scalar(select(User).where(func.lower(User.email) == email)):
         raise HTTPException(409, "Email is already registered")
     user = User(
         email=email,
@@ -376,7 +376,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     _enforce_rate_limit(db, "login_ip", client_ip, max_attempts=30, window_minutes=15, increment=False)
     _enforce_rate_limit(db, "login_email", email, max_attempts=10, window_minutes=15, increment=False)
 
-    user = db.scalar(select(User).where(User.email == email))
+    user = db.scalar(select(User).where(func.lower(User.email) == email))
     if not user or not verify_password(payload.password, user.password_hash) or not user.is_active:
         _enforce_rate_limit(db, "login_ip", client_ip, max_attempts=30, window_minutes=15, increment=True)
         _enforce_rate_limit(db, "login_email", email, max_attempts=10, window_minutes=15, increment=True)

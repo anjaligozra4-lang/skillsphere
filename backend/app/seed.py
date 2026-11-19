@@ -1,10 +1,13 @@
 ﻿
-from sqlalchemy import select
+import logging
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.models import Company, Recruiter, User
+
+logger = logging.getLogger("skillsphere.seed")
 
 
 DEMO_COMPANIES = [
@@ -70,32 +73,48 @@ DEMO_COMPANIES = [
 def ensure_admin(db: Session) -> None:
     settings = get_settings()
 
-    if not settings.admin_password:
+    admin_email = (settings.admin_email or "").strip().lower()
+    admin_password = (settings.admin_password or "").strip()
+    admin_name = (settings.admin_full_name or "").strip() or "SkillSphere Administrator"
+
+    if not admin_password:
+        logger.warning(
+            "ADMIN_PASSWORD environment variable is not configured. "
+            "Skipping administrator account initial provisioning. "
+            "Configure ADMIN_PASSWORD (and optionally ADMIN_EMAIL) in Render environment variables to manage administrator provisioning safely."
+        )
         return
 
-    email = settings.admin_email.strip().lower()
+    if not admin_email:
+        admin_email = "admin@skillsphere.com"
 
-    if not email:
-        return
-
-    user = db.scalar(select(User).where(User.email == email))
+    user = db.scalar(select(User).where(func.lower(User.email) == admin_email))
 
     if user is None:
         user = User(
-            email=email,
-            password_hash=hash_password(settings.admin_password),
-            full_name=settings.admin_full_name.strip() or "SkillSphere Administrator",
+            email=admin_email,
+            password_hash=hash_password(admin_password),
+            full_name=admin_name,
             role="admin",
             is_active=True,
         )
         db.add(user)
+        db.commit()
+        logger.info("Created administrator account for %s", admin_email)
     else:
-        user.password_hash = hash_password(settings.admin_password)
-        user.full_name = settings.admin_full_name.strip() or "SkillSphere Administrator"
-        user.role = "admin"
-        user.is_active = True
-
-    db.commit()
+        # Crucial: NEVER overwrite existing user passwords
+        updated = False
+        if not user.is_active:
+            user.is_active = True
+            updated = True
+        if user.role != "admin":
+            user.role = "admin"
+            updated = True
+        if updated:
+            db.commit()
+            logger.info("Ensured active admin role for existing user %s without changing password", admin_email)
+        else:
+            logger.info("Administrator account already exists for %s; preserving existing credentials", admin_email)
 
 
 def seed_demo_companies(db: Session) -> None:
