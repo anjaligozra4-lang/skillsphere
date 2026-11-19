@@ -50,6 +50,7 @@ function Navbar() {
       <Link className="brand" to="/">SkillSphere</Link>
       <div className="nav-links">
         <Link to="/jobs">Find Jobs</Link>
+        {!token && <Link to="/recruiter/login">For Employers</Link>}
         {!token && <Link to="/login">Log In</Link>}
         {!token && <Link className="button button-small" to="/register">Create Account</Link>}
         {token && <Link to={`/${role}`}>Dashboard</Link>}
@@ -78,6 +79,7 @@ function LandingPage() {
           <div className="hero-actions">
             <Link className="button" to="/jobs">Explore Jobs</Link>
             <Link className="button button-secondary" to="/register">Join SkillSphere</Link>
+            <Link className="button button-secondary" to="/recruiter/login">For Employers</Link>
           </div>
         </div>
         <div className="hero-card">
@@ -100,21 +102,34 @@ function LandingPage() {
   );
 }
 
-function AuthPage({ register = false, adminLogin = false }) {
+function AuthPage({ register = false, adminLogin = false, recruiterLogin = false }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const nextPath = searchParams.get("next");
+  const urlRole = searchParams.get("role");
+  const defaultRole = urlRole === "recruiter" ? "recruiter" : "candidate";
   const { loginSession, logout } = useAuth();
-  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: "candidate" });
+  const [form, setForm] = useState({ full_name: "", email: "", password: "", role: defaultRole });
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showResetHelp, setShowResetHelp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (urlRole === "recruiter" && register) {
+      setForm((prev) => ({ ...prev, role: "recruiter" }));
+    }
+  }, [urlRole, register]);
+
   const completeSession = async (data) => {
     if (adminLogin && data.role !== "admin") {
       logout();
       setError("This account does not have administrator access.");
+      return;
+    }
+    if (recruiterLogin && data.role !== "recruiter") {
+      logout();
+      setError("This account does not have recruiter access. Please sign in via the standard login.");
       return;
     }
     loginSession(data);
@@ -142,15 +157,71 @@ function AuthPage({ register = false, adminLogin = false }) {
     }
   };
 
+  const isRecruiterContext = recruiterLogin || (register && form.role === "recruiter");
+
+  const brandHeadline = register
+    ? form.role === "recruiter"
+      ? "Hire top talent with transparent AI skill verification."
+      : "Build the profile recruiters remember."
+    : adminLogin
+    ? "Manage the SkillSphere platform."
+    : recruiterLogin
+    ? "Hire top talent with transparent AI skill verification."
+    : "Turn your skills into opportunities.";
+
+  const brandDescription = register
+    ? form.role === "recruiter"
+      ? "Create your employer account to post openings, review AI-matched candidates, evaluate assessments, and schedule interviews."
+      : "Create your career profile, upload a resume, and discover roles tailored to your strengths."
+    : adminLogin
+    ? "Sign in with the administrator account configured for this platform."
+    : recruiterLogin
+    ? "Sign in to manage job postings, review applicants, evaluate AI skill matches, and schedule candidate interviews."
+    : "Sign in to manage applications, explore matching jobs, and move your career forward.";
+
+  const eyebrowText = register
+    ? form.role === "recruiter"
+      ? "Employer registration"
+      : "Create your profile"
+    : adminLogin
+    ? "Platform administration"
+    : recruiterLogin
+    ? "Employer & recruiter portal"
+    : "Welcome back";
+
+  const formTitle = register
+    ? form.role === "recruiter"
+      ? "Create Employer Account"
+      : "Join SkillSphere"
+    : adminLogin
+    ? "Administrator Login"
+    : recruiterLogin
+    ? "Recruiter Login"
+    : "Log in";
+
+  const submitButtonText = submitting
+    ? "Please wait..."
+    : register
+    ? form.role === "recruiter"
+      ? "Create Employer Account"
+      : "Create Account"
+    : adminLogin
+    ? "Log in as Administrator"
+    : recruiterLogin
+    ? "Log in as Recruiter"
+    : "Log In";
+
   return (
     <main className="auth-page">
       <section className="auth-shell">
         <div className="auth-brand-panel">
           <Link className="auth-brand" to="/">SkillSphere</Link>
           <div>
-            <span className="auth-kicker">Your career, clearly mapped</span>
-            <h2>{register ? "Build the profile recruiters remember." : adminLogin ? "Manage the SkillSphere platform." : "Turn your skills into opportunities."}</h2>
-            <p>{register ? "Create your career profile, upload a resume, and discover roles tailored to your strengths." : adminLogin ? "Sign in with the administrator account configured for this platform." : "Sign in to manage applications, explore matching jobs, and move your career forward."}</p>
+            <span className="auth-kicker">
+              {isRecruiterContext ? "Skill-first hiring platform" : adminLogin ? "Platform management" : "Your career, clearly mapped"}
+            </span>
+            <h2>{brandHeadline}</h2>
+            <p>{brandDescription}</p>
           </div>
           <div className="auth-trust">
             <span><strong>10k+</strong> opportunities explored</span>
@@ -158,8 +229,8 @@ function AuthPage({ register = false, adminLogin = false }) {
           </div>
         </div>
         <form className="auth-card" onSubmit={submit}>
-            <span className="eyebrow">{register ? "Create your profile" : adminLogin ? "Platform administration" : "Welcome back"}</span>
-            <h1>{register ? "Join SkillSphere" : adminLogin ? "Administrator Login" : "Log in"}</h1>
+            <span className="eyebrow">{eyebrowText}</span>
+            <h1>{formTitle}</h1>
             {register && <input required minLength="2" placeholder="Full name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />}
             <input required type="email" placeholder="Email address" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             <div className="password-field">
@@ -181,10 +252,33 @@ function AuthPage({ register = false, adminLogin = false }) {
               </div>
             )}
             {showResetHelp && <p className="reset-help">Contact your SkillSphere administrator with your registered email address to reset your password securely.</p>}
-            <button className="button" type="submit" disabled={submitting}>{submitting ? "Please wait..." : register ? "Create Account" : adminLogin ? "Log in as Administrator" : "Log In"}</button>
-            <Link to={register ? "/login" : adminLogin ? "/login" : "/register"}>{register ? "Already have an account? Log in" : adminLogin ? "Return to regular login" : "New here? Create an account"}</Link>
-            {!register && !adminLogin && <Link to="/admin/login">Administrator login</Link>}
-            {register && <p className="reset-help">Administrator accounts are provisioned by the platform operator; public admin signup is disabled.</p>}
+            <button className="button" type="submit" disabled={submitting}>{submitButtonText}</button>
+            <Link to={register ? "/login" : adminLogin || recruiterLogin ? "/login" : "/register"}>
+              {register ? "Already have an account? Log in" : adminLogin || recruiterLogin ? "Return to job seeker login" : "New here? Create an account"}
+            </Link>
+            {!register && !adminLogin && !recruiterLogin && (
+              <div className="auth-alternate-links">
+                <Link to="/recruiter/login">Employer / Recruiter login</Link>
+                <Link to="/admin/login">Administrator login</Link>
+              </div>
+            )}
+            {recruiterLogin && (
+              <div className="auth-alternate-links">
+                <Link to="/register?role=recruiter">New employer? Create a recruiter account</Link>
+                <Link to="/admin/login">Administrator login</Link>
+              </div>
+            )}
+            {adminLogin && (
+              <div className="auth-alternate-links">
+                <Link to="/recruiter/login">Recruiter login</Link>
+              </div>
+            )}
+            {register && form.role === "recruiter" && (
+              <p className="reset-help">Recruiters can create and post jobs once their company profile is registered.</p>
+            )}
+            {register && form.role !== "recruiter" && (
+              <p className="reset-help">Administrator accounts are provisioned by the platform operator; public admin signup is disabled.</p>
+            )}
         </form>
       </section>
     </main>
@@ -828,20 +922,21 @@ function Dashboard({ role }) {
             skills: candidate.data.skills?.join(", ") || "",
           });
         } else if (role === "recruiter") {
-          const [jobs, recruiterStatsResponse, proctoringEventsResponse] = await Promise.all([
-            api.get("/api/recruiters/jobs"),
-            api.get("/api/recruiters/stats"),
+          const [jobsRes, recruiterStatsResponse, proctoringEventsResponse, companyRes] = await Promise.all([
+            api.get("/api/recruiters/jobs").catch(() => ({ data: [] })),
+            api.get("/api/recruiters/stats").catch(() => ({ data: null })),
             api.get("/api/recruiter/proctoring-events").catch(() => ({ data: { items: [] } })),
+            api.get("/api/companies/me").catch(() => ({ data: null })),
           ]);
-          setItems(jobs.data);
-          setRecruiterStats(recruiterStatsResponse.data);
+          setItems(Array.isArray(jobsRes.data) ? jobsRes.data : []);
+          setRecruiterStats(recruiterStatsResponse.data || null);
           setProctoringEvents(proctoringEventsResponse.data?.items || []);
-          try {
-            const comp = (await api.get("/api/companies/me")).data;
-            setProfile(comp);
-            setCompanyDraft(comp);
-          } catch (requestError) {
-            if (requestError.response?.status !== 404) throw requestError;
+          if (companyRes.data) {
+            setProfile(companyRes.data);
+            setCompanyDraft(companyRes.data);
+          } else {
+            setProfile(null);
+            setCompanyDraft({ name: "", website: "", description: "" });
           }
         } else {
           const [statsResponse, jobsResponse, usersResponse, companiesResponse, trendsResponse, identityResponse, proctoringEventsResponse, recordingsResponse] = await Promise.all([
@@ -1837,20 +1932,47 @@ function Dashboard({ role }) {
         {role === "recruiter" && <>
           <aside className="workspace-sidebar">
             <div className="admin-identity"><span className="admin-avatar">{(fullName || "R").slice(0, 1).toUpperCase()}</span><div><strong>{fullName}</strong><span>Recruiter</span></div></div>
-            <a className="active" href="#recruiter-dashboard">Dashboard</a>
+            <a className="active" href="#recruiter-overview">Dashboard</a>
             <a href="#recruiter-pipeline">Hiring pipeline</a>
             <a href="#recruiter-applicants">Applicants & AI Match</a>
             <a href="#recruiter-interviews">Interviews</a>
             <a href="#recruiter-notifications">Email Logs</a>
             <a href="#recruiter-assessments">Manage Tests</a>
             <a href="#recruiter-results">Assessment Results</a>
+            <a href="#recruiter-proctoring-events">Proctoring alerts</a>
             <a href="#recruiter-jobs">Job postings</a>
             <Link to="/jobs">Browse jobs</Link>
             <a href="#recruiter-company">Company profile</a>
           </aside>
           <div className="workspace-main">
 
-          <section className="panel profile-form-panel recruiter-overview" id="recruiter-dashboard">
+            {!profile && (
+              <div className="status-banner status-banner-info">
+                <div className="status-banner-content">
+                  <strong>Welcome to your Recruiter Workspace!</strong>
+                  <p>Step 1: Set up your company profile below so candidates can learn about your organization.</p>
+                </div>
+                <a className="button button-secondary" href="#recruiter-company">Set Up Company Profile</a>
+              </div>
+            )}
+            {profile && !profile.is_approved && (
+              <div className="status-banner status-banner-warning">
+                <div className="status-banner-content">
+                  <strong>Company Profile Pending Administrator Approval</strong>
+                  <p>Your company profile for <em>{profile.name}</em> is awaiting administrator review. Job posting will be enabled once approved.</p>
+                </div>
+              </div>
+            )}
+            {profile && profile.is_approved && (
+              <div className="status-banner status-banner-success">
+                <div className="status-banner-content">
+                  <strong>Verified Employer: {profile.name}</strong>
+                  <p>Your company profile is approved. You can post open positions, review applicants, and manage skill assessments.</p>
+                </div>
+              </div>
+            )}
+
+          <section className="panel profile-form-panel recruiter-overview" id="recruiter-overview">
   <div className="section-heading">
     <div>
       <span className="eyebrow">Recruiter workspace</span>
@@ -1883,6 +2005,22 @@ function Dashboard({ role }) {
           </section>
           <section className="panel profile-form-panel" id="recruiter-post-job">
             <h2>Post a Job</h2>
+            {!profile && (
+              <div className="status-banner status-banner-warning">
+                <div className="status-banner-content">
+                  <strong>Company Profile Required</strong>
+                  <p>Please register your company profile above before creating job postings.</p>
+                </div>
+              </div>
+            )}
+            {profile && !profile.is_approved && (
+              <div className="status-banner status-banner-info">
+                <div className="status-banner-content">
+                  <strong>Pending Approval</strong>
+                  <p>Your company profile is awaiting admin approval. New job postings will be enabled once your company is approved.</p>
+                </div>
+              </div>
+            )}
             <form className="profile-form" onSubmit={createJob}>
               <input required minLength="3" placeholder="Job title" value={jobDraft.title} onChange={(event) => setJobDraft({ ...jobDraft, title: event.target.value })} />
               <input placeholder="Location" value={jobDraft.location} onChange={(event) => setJobDraft({ ...jobDraft, location: event.target.value })} />
@@ -1897,7 +2035,7 @@ function Dashboard({ role }) {
               <textarea required minLength="10" className="full-width" placeholder="Job description" value={jobDraft.description} onChange={(event) => setJobDraft({ ...jobDraft, description: event.target.value })} />
               <input className="full-width" placeholder="Required skills (comma separated)" value={jobDraft.skills} onChange={(event) => setJobDraft({ ...jobDraft, skills: event.target.value })} />
               <div className="card-actions full-width">
-                <button className="button" type="submit" disabled={saving || !profile}>
+                <button className="button" type="submit" disabled={saving || !profile || (!editingJobId && !profile.is_approved)}>
                   {editingJobId ? "Save Changes" : "Submit for Approval"}
                 </button>
                 {editingJobId && <button className="button button-secondary" type="button" onClick={() => {
@@ -2337,7 +2475,6 @@ function Dashboard({ role }) {
             refreshSignal={resultsRefreshSignal}
             onFeedback={handleChildFeedback}
           />
-          </div>
           <section className="panel profile-form-panel" id="recruiter-proctoring-events">
             <div className="section-heading">
               <div><span className="eyebrow">Assessment monitoring</span><h2>Proctoring Events</h2></div>
@@ -2354,7 +2491,7 @@ function Dashboard({ role }) {
                     tab_switch: "Tab switched",
                     fullscreen_exit: "Fullscreen exited",
                   })[event.event_type] || event.event_type}</strong>
-                  <span>{event.candidate_name} Â· {event.job_title} Â· {event.assessment_title}</span>
+                  <span>{event.candidate_name} · {event.job_title} · {event.assessment_title}</span>
                   <span>{event.created_at ? new Date(event.created_at).toLocaleString() : "Time unavailable"}</span>
                 </div>
                 <span className="role-pill">Alert</span>
@@ -2362,6 +2499,7 @@ function Dashboard({ role }) {
             )) : <p>No proctoring events recorded yet.</p>}
             <p className="small-meta">Proctoring alerts are for review only and do not automatically disqualify candidates.</p>
           </section>
+          </div>
           {assignModalOpen && (
             <AssignAssessmentModal
               open={assignModalOpen}
@@ -2591,6 +2729,7 @@ export default function App() {
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/jobs/:jobId" element={<JobDetailPage />} />
         <Route path="/login" element={<AuthPage />} />
+        <Route path="/recruiter/login" element={<AuthPage recruiterLogin />} />
         <Route path="/admin/login" element={<AuthPage adminLogin />} />
         <Route path="/register" element={<AuthPage register />} />
         <Route path="/assessment/:token" element={<AssessmentPortal />} />

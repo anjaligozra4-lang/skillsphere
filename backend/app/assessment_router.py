@@ -14,7 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api import optional_current_user, require_roles
+from app.api import get_or_create_recruiter_profile, optional_current_user, require_roles
 from app.core.config import get_settings
 from app.assessment_service import (
     evaluate_assignment_submission,
@@ -648,7 +648,7 @@ def recruiter_browse_question_bank(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     job_skills: list[str] = []
     if job_id is not None:
         job = _get_eligible_recruiter_job(db, recruiter, job_id)
@@ -698,7 +698,7 @@ def recruiter_generate_assessment_questions(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     if not recruiter:
         raise HTTPException(404, "Recruiter profile not found.")
     job = _get_eligible_recruiter_job(db, recruiter, payload.job_id)
@@ -916,7 +916,7 @@ def recruiter_list_assessments(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     stmt = select(Assessment).where(Assessment.recruiter_id == recruiter.id)
     if job_id is not None:
         stmt = stmt.where(Assessment.job_id == job_id)
@@ -932,7 +932,7 @@ def recruiter_get_assessment(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     assessment = db.get(Assessment, assessment_id)
     if not assessment or assessment.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment not found")
@@ -945,7 +945,7 @@ def recruiter_create_assessment(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     if not recruiter:
         raise HTTPException(404, "Recruiter profile not found.")
     job = _get_eligible_recruiter_job(db, recruiter, payload.job_id)
@@ -980,7 +980,7 @@ def recruiter_update_assessment(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     assessment = db.get(Assessment, assessment_id)
     if not assessment or assessment.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment not found")
@@ -1018,7 +1018,7 @@ def recruiter_publish_assessment(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     assessment = db.get(Assessment, assessment_id)
     if not assessment or assessment.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment not found")
@@ -1045,7 +1045,7 @@ def recruiter_delete_assessment(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     assessment = db.get(Assessment, assessment_id)
     if not assessment or assessment.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment not found")
@@ -1065,7 +1065,7 @@ def recruiter_assign_assessment(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     assessment = db.get(Assessment, assessment_id)
     if not assessment or assessment.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment not found")
@@ -1176,7 +1176,7 @@ def recruiter_resend_assignment(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     assignment = db.get(AssessmentAssignment, assignment_id)
     if not assignment or assignment.job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment assignment not found")
@@ -1245,7 +1245,7 @@ def recruiter_list_proctoring_events(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     if not recruiter:
         raise HTTPException(404, "Recruiter profile not found.")
 
@@ -1302,7 +1302,7 @@ def recruiter_list_assessment_results(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     stmt = (
         select(AssessmentAssignment)
         .join(Job, AssessmentAssignment.job_id == Job.id)
@@ -1344,7 +1344,7 @@ def recruiter_get_assessment_result_detail(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     assignment = db.get(AssessmentAssignment, assignment_id)
     if not assignment or assignment.job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment assignment not found")
@@ -1432,7 +1432,7 @@ def recruiter_list_assessment_recordings(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     stmt = (
         select(AssessmentRecording, AssessmentAssignment)
         .join(AssessmentAssignment, AssessmentRecording.assignment_id == AssessmentAssignment.id)
@@ -1477,7 +1477,7 @@ def recruiter_get_assessment_recording_playback(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     recording = db.get(AssessmentRecording, recording_id)
     if not recording or recording.assignment.job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Assessment recording not found.")
@@ -2166,7 +2166,7 @@ def create_video_assessment(
 
     recruiter = None
     if user.role == "recruiter":
-        recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+        recruiter = get_or_create_recruiter_profile(db, user)
         if not recruiter or job.recruiter_id != recruiter.id:
             raise HTTPException(403, "You do not have permission to create an assessment for this job.")
 
@@ -2253,7 +2253,7 @@ def list_video_assessments(
     """Lists video assessments created by or visible to the recruiter."""
     stmt = select(Assessment).where(Assessment.assessment_type == "video")
     if user.role == "recruiter":
-        recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+        recruiter = get_or_create_recruiter_profile(db, user)
         if recruiter:
             stmt = stmt.where(Assessment.recruiter_id == recruiter.id)
         else:
@@ -2291,7 +2291,7 @@ def get_video_assessment(
         raise HTTPException(404, "Video assessment not found.")
 
     if user.role == "recruiter":
-        recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+        recruiter = get_or_create_recruiter_profile(db, user)
         if not recruiter or assessment.recruiter_id != recruiter.id:
             raise HTTPException(403, "Access denied.")
 
@@ -2352,7 +2352,7 @@ def get_video_assessment_submission(
         raise HTTPException(404, "Assessment assignment not found.")
 
     if user.role == "recruiter":
-        recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+        recruiter = get_or_create_recruiter_profile(db, user)
         if not recruiter or assignment.job.recruiter_id != recruiter.id:
             raise HTTPException(403, "Access denied.")
 

@@ -118,6 +118,11 @@ def restore_backup(db: Session) -> dict[str, int]:
                 if cand_existing is None:
                     db.add(Candidate(user_id=user.id))
                     stats["candidates_created"] += 1
+            elif role == "recruiter":
+                rec_existing = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+                if rec_existing is None:
+                    db.add(Recruiter(user_id=user.id))
+                    stats["recruiters_created"] += 1
 
         except Exception as e:
             print(f"Error importing user {row[1] if len(row) > 1 else 'unknown'}: {e}")

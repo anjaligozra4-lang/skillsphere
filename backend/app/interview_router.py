@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api import require_roles
+from app.api import get_or_create_recruiter_profile, require_roles
 from app.core.security import ensure_utc, isoformat_utc, utc_now
 from app.database import get_db
 from app.matching_workflow import record_status_history
@@ -391,7 +391,7 @@ def _schedule_interview_for_application(
                 f"Interview Round {round_number} is already scheduled at this date and time.",
             )
 
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     import secrets
     from app.core.config import get_settings
     settings = get_settings()
@@ -498,7 +498,7 @@ def schedule_live_interview(
     settings = get_settings()
     room_name = f"skillsphere-interview-{secrets.token_hex(6)}"
 
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     round_num = int(payload.get("round_number") or 1)
     round_name = (payload.get("round_name") or f"Interview Round {round_num}").strip()
 
@@ -590,7 +590,7 @@ def list_recruiter_interviews(
     user: User = Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     stmt = (
         select(Interview)
         .join(Job, Interview.job_id == Job.id)
@@ -869,7 +869,7 @@ def list_recruiter_notifications(
     user: User = Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     stmt = (
         select(EmailNotification)
         .join(Job, EmailNotification.job_id == Job.id)

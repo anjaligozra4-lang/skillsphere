@@ -1208,6 +1208,78 @@ describe("SkillSphere application shell", () => {
     const adminDialog = await screen.findByRole("dialog", { name: "Admin Interview Details" });
     expect(within(adminDialog).getByText(/Good knowledge of FastAPI\./)).toBeInTheDocument();
   });
+
+  it("renders dedicated recruiter login page with employer copy and navigation links", async () => {
+    render(
+      <MemoryRouter initialEntries={["/recruiter/login"]}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Recruiter Login" })).toBeInTheDocument();
+    expect(screen.getByText("Employer & recruiter portal")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log in as Recruiter" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "New employer? Create a recruiter account" })).toBeInTheDocument();
+  });
+
+  it("renders recruiter-customized signup copy when visiting /register?role=recruiter", async () => {
+    render(
+      <MemoryRouter initialEntries={["/register?role=recruiter"]}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Create Employer Account" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Employer Account" })).toBeInTheDocument();
+    expect(screen.getByText(/Hire top talent with transparent AI skill verification/i)).toBeInTheDocument();
+    expect(screen.getByText(/Recruiters can create and post jobs once their company profile is registered/i)).toBeInTheDocument();
+  });
+
+  it("renders company approval status banners and post job disabled states in recruiter dashboard", async () => {
+    localStorage.setItem("skillsphere_token", "recruiter-token");
+    localStorage.setItem("skillsphere_role", "recruiter");
+    localStorage.setItem("skillsphere_name", "Jane Recruiter");
+    localStorage.setItem("skillsphere_user_id", "5");
+
+    const unapprovedCompany = {
+      id: 10,
+      name: "Acme Corp",
+      website: "https://acme.example.com",
+      location: "San Francisco",
+      description: "Acme innovation",
+      is_approved: false,
+    };
+
+    api.get.mockImplementation((path) => {
+      if (path === "/api/recruiters/jobs") return Promise.resolve({ data: [] });
+      if (path === "/api/recruiters/stats") return Promise.resolve({ data: { jobs: 0, active_jobs: 0, applications: 0, pending_applications: 0 } });
+      if (path === "/api/recruiter/proctoring-events") return Promise.resolve({ data: { items: [] } });
+      if (path === "/api/companies/me") return Promise.resolve({ data: unapprovedCompany });
+      if (path === "/api/interviews") return Promise.resolve({ data: [] });
+      if (path === "/api/assessments") return Promise.resolve({ data: [] });
+      if (path === "/api/recruiter/assessment-results") return Promise.resolve({ data: [] });
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/recruiter"]}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText(/Company Profile Pending Administrator Approval/i)).toBeInTheDocument();
+    expect(screen.getByText(/Your company profile for/i)).toBeInTheDocument();
+    expect(screen.getByText(/Acme Corp/i)).toBeInTheDocument();
+
+    const postJobSubmit = screen.getByRole("button", { name: "Submit for Approval" });
+    expect(postJobSubmit).toBeDisabled();
+  });
 });
 
 

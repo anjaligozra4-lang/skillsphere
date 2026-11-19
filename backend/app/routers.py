@@ -17,7 +17,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.api import current_user, require_roles
+from app.api import (
+    current_user,
+    get_or_create_candidate_profile,
+    get_or_create_recruiter_profile,
+    require_roles,
+)
 from app.core.config import get_settings
 from app.core.security import (
     create_access_token,
@@ -442,7 +447,7 @@ def authenticated_user(user=Depends(current_user)):
 @candidate_router.get("/me")
 @resume_router.get("/profile")
 def candidate_profile(user=Depends(require_roles("candidate")), db: Session = Depends(get_db)):
-    candidate = db.scalar(select(Candidate).where(Candidate.user_id == user.id))
+    candidate = get_or_create_candidate_profile(db, user)
     return {
         "id": candidate.id,
         "full_name": user.full_name,
@@ -546,7 +551,7 @@ def replace_candidate_skills(db: Session, candidate: Candidate, names: list[str]
 
 @company_router.post("")
 def create_company(payload: CompanyRequest, user=Depends(require_roles("recruiter")), db: Session = Depends(get_db)):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     if db.scalar(select(Company).where(Company.name == payload.name)):
         raise HTTPException(409, "Company already exists")
     company = Company(**payload.model_dump())
@@ -559,7 +564,7 @@ def create_company(payload: CompanyRequest, user=Depends(require_roles("recruite
 
 @company_router.put("")
 def update_company(payload: CompanyRequest, user=Depends(require_roles("recruiter")), db: Session = Depends(get_db)):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     company = recruiter.company if recruiter else None
     if not company:
         raise HTTPException(404, "Company profile not found")
@@ -574,7 +579,7 @@ def update_company(payload: CompanyRequest, user=Depends(require_roles("recruite
 
 @company_router.get("/me")
 def my_company(user=Depends(require_roles("recruiter")), db: Session = Depends(get_db)):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     if not recruiter or not recruiter.company:
         raise HTTPException(404, "Company profile not found")
     return {
@@ -708,10 +713,10 @@ def job_details(job_id: int, db: Session = Depends(get_db)):
 @recruiter_router.post("/jobs", status_code=201)
 @job_router.post("", status_code=201)
 def create_job(payload: JobRequest, user=Depends(require_roles("recruiter")), db: Session = Depends(get_db)):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     if not recruiter.company_id:
         raise HTTPException(400, "Create a company profile before posting jobs")
-    if not recruiter.company.is_approved:
+    if not recruiter.company or not recruiter.company.is_approved:
         raise HTTPException(403, "Company must be approved before posting jobs")
     job = Job(
         recruiter_id=recruiter.id,
@@ -736,7 +741,7 @@ def create_job(payload: JobRequest, user=Depends(require_roles("recruiter")), db
 
 @recruiter_router.get("/jobs")
 def my_jobs(user=Depends(require_roles("recruiter")), db: Session = Depends(get_db)):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     jobs = db.scalars(select(Job).where(Job.recruiter_id == recruiter.id).order_by(Job.created_at.desc())).all()
     return [
         {
@@ -760,7 +765,7 @@ def my_jobs(user=Depends(require_roles("recruiter")), db: Session = Depends(get_
 
 @recruiter_router.delete("/jobs/{job_id}")
 def delete_recruiter_job(job_id: int, user=Depends(require_roles("recruiter")), db: Session = Depends(get_db)):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     job = db.get(Job, job_id)
     if not job or job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Job not found")
@@ -774,7 +779,7 @@ def delete_recruiter_job(job_id: int, user=Depends(require_roles("recruiter")), 
 
 @recruiter_router.get("/stats")
 def recruiter_stats(user=Depends(require_roles("recruiter")), db: Session = Depends(get_db)):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     job_filter = Job.recruiter_id == recruiter.id
     application_query = select(func.count(Application.id)).join(
         Job, Application.job_id == Job.id
@@ -798,7 +803,7 @@ def update_job(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     job = db.get(Job, job_id)
     if not job or job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Job not found")
@@ -827,7 +832,7 @@ def update_recruiter_job_status(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     job = db.get(Job, job_id)
     if not job or job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Job not found")
@@ -1315,7 +1320,7 @@ def job_applicants(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     job = db.get(Job, job_id)
     if not job or job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Job not found")
@@ -1335,7 +1340,7 @@ def recruiter_applicants(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     statement = select(Job).where(Job.recruiter_id == recruiter.id)
     if job_id is not None:
         statement = statement.where(Job.id == job_id)
@@ -1408,7 +1413,7 @@ def match_all_job_applicants(
     user=Depends(require_roles("recruiter")),
     db: Session = Depends(get_db),
 ):
-    recruiter = db.scalar(select(Recruiter).where(Recruiter.user_id == user.id))
+    recruiter = get_or_create_recruiter_profile(db, user)
     job = db.get(Job, job_id)
     if not job or job.recruiter_id != recruiter.id:
         raise HTTPException(404, "Job not found")
