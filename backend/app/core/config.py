@@ -1,9 +1,10 @@
-﻿from pathlib import Path
+﻿import os
+from pathlib import Path
 import secrets
 import threading
 from urllib.parse import quote_plus
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -58,8 +59,16 @@ class Settings(BaseSettings):
     ai_model: str = ""
     ai_require_external: bool = False
 
-    # Database URL override (e.g. for PostgreSQL)
-    database_url_override: str = ""
+    # Database URL override (e.g. for PostgreSQL on Render)
+    database_url_override: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "database_url_override",
+            "DATABASE_URL_OVERRIDE",
+            "database_url",
+            "DATABASE_URL",
+        ),
+    )
 
     # Cloudinary recording storage
     cloudinary_cloud_name: str = ""
@@ -81,11 +90,27 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        if self.database_url_override:
-            url = self.database_url_override
+        override = (
+            self.database_url_override
+            or os.environ.get("DATABASE_URL_OVERRIDE", "").strip()
+            or os.environ.get("DATABASE_URL", "").strip()
+        )
+        if override:
+            url = override
             if url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql://", 1)
             return url
+
+        is_production = (
+            self.app_env.lower() in ("production", "prod", "staging")
+            or bool(os.getenv("RENDER"))
+            or bool(os.getenv("RENDER_SERVICE_ID"))
+        )
+        if is_production:
+            raise RuntimeError(
+                "DATABASE_URL or DATABASE_URL_OVERRIDE environment variable is required in production. "
+                "SkillSphere cannot connect to local MySQL (127.0.0.1:3306) or SQLite on Render."
+            )
 
         if not self.mysql_password:
             return "sqlite:///./skillsphere.db"
@@ -99,11 +124,14 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins(self) -> list[str]:
-        return [
-            origin.strip()
+        origins = {
+            origin.strip().rstrip("/")
             for origin in self.cors_origins.split(",")
             if origin.strip()
-        ]
+        }
+        if self.frontend_base_url and self.frontend_base_url.strip():
+            origins.add(self.frontend_base_url.strip().rstrip("/"))
+        return sorted(list(origins))
 
     @field_validator("jwt_secret_key")
     @classmethod
@@ -172,7 +200,12 @@ def get_settings() -> Settings:
 
         settings = Settings(_env_file=_configured_env_files())
 
-        if settings.app_env == "production" and not settings.jwt_secret_key:
+        is_production = (
+            settings.app_env.lower() in ("production", "prod", "staging")
+            or bool(os.getenv("RENDER"))
+            or bool(os.getenv("RENDER_SERVICE_ID"))
+        )
+        if is_production and not settings.jwt_secret_key:
             raise RuntimeError("JWT_SECRET_KEY is required in production.")
 
         if not settings.jwt_secret_key:

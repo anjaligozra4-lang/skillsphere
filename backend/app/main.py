@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 import os
 
 from fastapi import FastAPI
@@ -35,16 +36,30 @@ from app.routers import (
 from app.seed import ensure_admin
 
 
+logger = logging.getLogger("skillsphere.main")
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if os.getenv("SKILLSPHERE_TESTING") != "1":
-        Base.metadata.create_all(engine)
-        with SessionLocal() as db:
-            ensure_admin(db)
-            ensure_platform_defaults(db, seed_questions=True)
+        logger.info(
+            "Initializing database at: %s",
+            engine.url.render_as_string(hide_password=True),
+        )
+        try:
+            Base.metadata.create_all(engine)
+            with SessionLocal() as db:
+                ensure_admin(db)
+                ensure_platform_defaults(db, seed_questions=True)
+            logger.info("Database schema and platform defaults initialized successfully.")
+        except Exception as exc:
+            logger.critical(
+                "Database initialization failed (%s): %s",
+                engine.url.render_as_string(hide_password=True),
+                exc,
+            )
+            raise
     yield
 
 
@@ -55,13 +70,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_origins_list = settings.allowed_origins
+if "*" in cors_origins_list or settings.cors_origins.strip() == "*":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"^https?://.*",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 for router in (
     auth_router,

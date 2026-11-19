@@ -240,7 +240,7 @@ function JobsPage() {
       setMessage("");
     } catch (requestError) {
       setJobsPage({ items: [], total: 0, page: 1, pages: 0 });
-      setMessage(requestError.response?.data?.detail || "Jobs are unavailable until the backend is running and MySQL is configured.");
+      setMessage(requestError.response?.data?.detail || "Jobs are unavailable until the backend is running and the database is connected.");
     } finally {
       setLoadingJobs(false);
     }
